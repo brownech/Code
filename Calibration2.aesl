@@ -16,6 +16,8 @@
 <constant value="6" name="PAUSE"/>
 <constant value="7" name="WAIT"/>
 <constant value="8" name="ALIGNFORSTART"/>
+<constant value="9" name="GOTOEND"/>
+<constant value="10" name="TURNAROUND"/>
 <constant value="3" name="LEDBUTTONMAXINDEX"/>
 <constant value="7" name="LEDCIRCLEMAXINDEX"/>
 <constant value="3" name="LEDLOW"/>
@@ -36,6 +38,7 @@
 <constant value="3" name="CALIBRATIONMAXINDEX"/>
 <constant value="1" name="TRUE"/>
 <constant value="0" name="FALSE"/>
+<constant value="9" name="TEMPMAXINDEX"/>
 
 
 <!--show keywords state-->
@@ -62,6 +65,7 @@ var counterRotate
 var counterMaxRotate
 var counterMaxRotateCW
 var counterMaxRotateCCW
+var counterMaxGoForward
 var prox1
 var prox2
 var proxFactor
@@ -94,6 +98,7 @@ sub initialize
 	counterMaxRotate = 0
 	counterMaxRotateCW = 0
 	counterMaxRotateCCW = 0
+	counterMaxGoForward = 0
 	prox1 = 0
 	prox2 = 0
 	proxFactor = 0
@@ -332,21 +337,13 @@ onevent timer0
 				counterTicks = 0
 				callsub stop
 				#calibrating is finished
-				calibrating = FALSE
+#------------>		#calibrating = FALSE
 				state = WAIT
 				nextState = ALIGNREAR
 			end
 		end
 	#the following is only executed when NOT calibrating
 	else
-		when state == ALIGNREAR do
-			callsub setProxRear
-			counterTakeTemp = 0
-			counterRotate = 0
-			counterTrip++
-		end
-		
-
 		
 		when state == GOFORWARD do
 			callsub goForward
@@ -379,18 +376,7 @@ onevent timer0
 		
 		##########
 	
-		#the following "if state == ALIGNREAR" must be placed before "if state == WAIT", or else "setProxRear" won't be called before "align"
-		if state == ALIGNREAR then
-			callsub align
-			
-			#if rear is aligned
-			if motor.left.target == 0 and motor.right.target == 0 then
-				#counterTicks has to be reset here, because "if state == ALIGNREAR" is before "if state == WAIT"
-				counterTicks = 0
-				state = WAIT
-				nextState = GOFORWARD
-			end
-		end
+
 		
 		if state == ROTATE then
 			counterTicks++
@@ -450,11 +436,68 @@ onevent timer0
 		end
 	end#if calibrating
 	
+	
+	
 	##########
 	#the following is always executed
 	
-	if state == WAIT then
+	when state == ALIGNREAR do
+		callsub setProxRear
+		counterTakeTemp = 0
+		counterRotate = 0
+		counterTrip++
+	end
+	
+	when state == GOTOEND do
+		callsub goForward
+		counterTicks = 0
+	end
+	
+	when state == TURNAROUND do
+		callsub rotateCW
+		counterTicks = 0
+	end
+	
+	##########
+	
+	#the following "if state == ALIGNREAR" must be placed before "if state == WAIT", or else "setProxRear" won't be called before "align"
+	if state == ALIGNREAR then
+		callsub align
 		
+		#if rear is aligned
+		if motor.left.target == 0 and motor.right.target == 0 then
+			#counterTicks has to be reset here, because "if state == ALIGNREAR" is before "if state == WAIT"
+			counterTicks = 0
+			state = WAIT
+			nextState = GOFORWARD
+		end
+	end
+	
+	if state == GOTOEND then
+		counterTicks++
+		when prox.horizontal[2] > PROXFRONT do
+			callsub stop
+			#set distance between each temp measure
+			counterMaxGoForward = counterTicks / (TEMPMAXINDEX + 2)
+			counterTicks = 0
+			state = WAIT
+			nextState = TURNAROUND
+		end
+	end
+	
+	if state == TURNAROUND then
+		counterTicks++
+		#make 180° turn
+		when counterTicks > 2 * counterMaxRotateCW do
+			callsub stop
+			counterTicks = 0
+			state = WAIT
+			nextState = ALIGNREAR
+		end
+	end
+	
+	if state == WAIT then
+			
 		counterTicks++
 		
 		if counterTicks >= (TIMEWAIT / TIMERFAST) then
