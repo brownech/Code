@@ -250,16 +250,6 @@ onevent timer0
 	end
 	
 	##########
-	
-	if state == WAIT then
-			
-		counterTicks++
-		
-		if counterTicks >= (TIMEWAIT / TIMERFAST) then
-			state = nextState
-		end
-	end
-	
 
 
 	#the following is only executed when calibrating
@@ -420,6 +410,14 @@ onevent timer0
 			end
 		end
 	
+		if state == TAKETEMP then
+			counterTicks++
+			if counterTicks >= (TIMETAKETEMP / TIMERFAST) then
+				temp = temperature
+				state = GOFORWARD
+			end
+		end
+	
 		if state == GOFORWARD then
 			counterTicks++
 	
@@ -438,13 +436,7 @@ onevent timer0
 			end
 		end
 		
-		if state == TAKETEMP then
-			counterTicks++
-			if counterTicks >= (TIMETAKETEMP / TIMERFAST) then
-				temp = temperature
-				state = GOFORWARD
-			end
-		end
+
 		
 	end#if calibrating
 	
@@ -501,7 +493,7 @@ onevent timer0
 		when prox.horizontal[2] > PROXFRONT do
 			callsub stop
 			#set distance between each temp measure
-			counterMaxGoForward = counterTicks / (COUNTERMAXTAKETEMP + 1)
+			counterMaxGoForward = counterTicks / (COUNTERMAXTAKETEMP)
 			counterTicks = 0
 			state = WAIT
 			nextState = TURNAROUND
@@ -519,7 +511,14 @@ onevent timer0
 		end
 	end
 	
-
+	if state == WAIT then
+			
+		counterTicks++
+		
+		if counterTicks >= (TIMEWAIT / TIMERFAST) then
+			state = nextState
+		end
+	end
 	
 	##########
 	
