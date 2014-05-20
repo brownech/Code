@@ -38,7 +38,8 @@
 <constant value="3" name="CALIBRATIONMAXINDEX"/>
 <constant value="1" name="TRUE"/>
 <constant value="0" name="FALSE"/>
-<constant value="9" name="TEMPMAXINDEX"/>
+<constant value="9" name="TEMPPERTRIP"/>
+<constant value="99" name="TEMPMAXINDEX"/>
 
 
 <!--show keywords state-->
@@ -53,6 +54,7 @@
 var ledsCircleArray[LEDCIRCLEMAXINDEX + 1]
 var ledsButtonArray[LEDBUTTONMAXINDEX + 1]
 var calibrationArray[CALIBRATIONMAXINDEX + 1]
+var tempArray[TEMPMAXINDEX + 1]
 var i
 var state
 var previousState
@@ -80,6 +82,9 @@ sub resetLedArray
 	end
 	for i in 0:LEDBUTTONMAXINDEX do
 		ledsButtonArray[i] = 0
+	end
+	for i in 0:TEMPMAXINDEX do
+		tempArray[i] = 0
 	end
 
 sub initialize
@@ -167,6 +172,11 @@ sub align
 	if prox.horizontal[prox2] &lt; (PROXREAR + PROXTOLERANCE) and prox.horizontal[prox2] > (PROXREAR - PROXTOLERANCE) then
 		motor.right.target = 0
 	end
+	
+sub writeTemp
+	tempArray[10*(counterTrip-1)+counterTakeTemp] = temp
+	call sd.open(1,1)
+	call sd.write(tempArray,1)
 	
 ##################################################
 	
@@ -349,7 +359,7 @@ onevent timer0
 		when state == GOFORWARD do
 			callsub goForward
 			counterTicks = 0
-			if counterTakeTemp == COUNTERMAXTAKETEMP and counterTrip == COUNTERMAXTAKETEMP then
+			if counterTakeTemp == TEMPPERTRIP and counterTrip == TEMPPERTRIP then
 				state = OFF
 			end
 		end
@@ -414,6 +424,7 @@ onevent timer0
 			counterTicks++
 			if counterTicks >= (TIMETAKETEMP / TIMERFAST) then
 				temp = temperature
+				callsub writeTemp
 				state = GOFORWARD
 			end
 		end
@@ -422,7 +433,7 @@ onevent timer0
 			counterTicks++
 	
 			if counterTicks >= counterMaxGoForward then
-				if counterTakeTemp &lt; COUNTERMAXTAKETEMP then
+				if counterTakeTemp &lt; TEMPPERTRIP then
 					state = TAKETEMP
 				end
 				if counterRotate == 1 then
@@ -493,7 +504,7 @@ onevent timer0
 		when prox.horizontal[2] > PROXFRONT do
 			callsub stop
 			#set distance between each temp measure
-			counterMaxGoForward = counterTicks / (COUNTERMAXTAKETEMP)
+			counterMaxGoForward = counterTicks / (TEMPPERTRIP + 1)#(COUNTERMAXTAKETEMP)
 			counterTicks = 0
 			state = WAIT
 			nextState = TURNAROUND
