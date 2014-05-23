@@ -73,8 +73,11 @@ var prox1
 var prox2
 var proxFactor
 var temp
+var previousTemp
 var calibrating
 var counterCalibration
+var sound
+
 
 sub resetLedArray
 	for i in 0:LEDCIRCLEMAXINDEX do
@@ -88,6 +91,7 @@ sub resetLedArray
 	end
 
 sub initialize
+	call sound.system(-1)
 	callsub resetLedArray
 	for i in 0:CALIBRATIONMAXINDEX do
 		calibrationArray[i] = 0
@@ -110,8 +114,10 @@ sub initialize
 	prox2 = 0
 	proxFactor = 0
 	temp = 0
+	previousTemp = 0
 	calibrating = TRUE
 	counterCalibration = 0
+	sound = OFF
 	
 sub goForward
 	ledsCircleArray = [LEDHIGH,LEDLOW,0,0,0,0,0,LEDLOW]
@@ -173,11 +179,25 @@ sub align
 		motor.right.target = 0
 	end
 	
+sub announceTemperature
+	if sound == ON then
+		#division by ten, so only annouces every degree, not every tenth
+		if temp / 10 != previousTemp / 10 then
+			#only between 15 and 40, so doesn't get missing file error
+			if temp / 10 >= 15 and temp / 10 &lt;=40 then
+				call sound.play(temp/10)
+			end
+		end
+	end
+	
+	
 sub writeTemp
 	tempArray[10*(counterTrip-1)+counterTakeTemp-1] = temp
 	call sd.open(1,1)
 	call sd.write(tempArray,1)
+	callsub announceTemperature
 	
+
 ##################################################
 	
 onevent buttons
@@ -225,6 +245,16 @@ onevent buttons
 	
 	when button.left == 1 do
 		ledsButtonArray = [LEDLOW,LEDLOW,LEDLOW,LEDHIGH]
+		
+		#change sound state
+		if sound == OFF then
+			sound = ON
+			
+			call sound.play(1)
+		else
+			call sound.system(-1)
+			sound = OFF			
+		end
 	end
 	
 	when button.center == 0 and button.forward == 0 and button.backward == 0 and button.right == 0 and button.left == 0 do
@@ -423,6 +453,7 @@ onevent timer0
 		if state == TAKETEMP then
 			counterTicks++
 			if counterTicks >= (TIMETAKETEMP / TIMERFAST) then
+				previousTemp = temp
 				temp = temperature
 				callsub writeTemp
 				counterTicks = 0
