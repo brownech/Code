@@ -6,6 +6,8 @@
 
 
 <!--list of constants-->
+<constant value="0" name="FALSE"/>
+<constant value="1" name="TRUE"/>
 <constant value="0" name="OFF"/>
 <constant value="1" name="ON"/>
 <constant value="1" name="ALIGNREAR"/>
@@ -20,26 +22,25 @@
 <constant value="10" name="TURNAROUND"/>
 <constant value="3" name="LEDBUTTONMAXINDEX"/>
 <constant value="7" name="LEDCIRCLEMAXINDEX"/>
-<constant value="3" name="LEDLOW"/>
+<constant value="2" name="LEDLOW"/>
 <constant value="16" name="LEDHIGH"/>
 <constant value="100" name="SPEEDFORWARD"/>
-<constant value="0" name="SPEEDCORRECTION"/>
 <constant value="60" name="SPEEDROTATE"/>
 <constant value="50" name="SPEEDALIGN"/>
-<constant value="5" name="TIMERFAST"/>
+<constant value="5" name="TIMERPERIOD"/>
 <constant value="500" name="TIMEWAIT"/>
 <constant value="2000" name="TIMETAKETEMP"/>
-<constant value="3500" name="PROXREAR"/>
+<constant value="3500" name="PROXALIGN"/>
 <constant value="4500" name="PROXFRONT"/>
 <constant value="30" name="PROXTOLERANCE"/>
-<constant value="675" name="COUNTERMAXGOFORWARD"/>
-<constant value="3" name="COUNTERMAXTAKETEMP"/>
-<constant value="500" name="COUNTERMINROTATE"/>
 <constant value="3" name="CALIBRATIONMAXINDEX"/>
-<constant value="1" name="TRUE"/>
-<constant value="0" name="FALSE"/>
 <constant value="10" name="TEMPPERTRIP"/>
 <constant value="99" name="TEMPMAXINDEX"/>
+<constant value="500" name="COUNTERMINROTATE"/>
+<constant value="0" name="SPEEDCORRECTION"/>
+<constant value="0" name="PROXREARCORRECTION"/>
+<constant value="0" name="PROXFRONTCORRECTION"/>
+<constant value="0" name="ROTATIONCORRECTION"/>
 
 
 <!--show keywords state-->
@@ -51,6 +52,33 @@
 #Name: Christopher Browne
 #Place: ETML, Lausanne
 
+var ledsTempValue[78] = [5,0,32,
+0,0,32,
+0,5,32,
+0,11,32,
+0,16,32,
+0,21,32,
+0,27,32,
+0,32,32,
+0,32,27,
+0,32,21,
+0,32,16,
+0,32,11,
+0,32,5,
+0,32,0,
+5,32,0,
+11,32,0,
+16,32,0,
+21,32,0,
+27,32,0,
+32,32,0,
+32,27,0,
+32,21,0,
+32,16,0,
+32,11,0,
+32,5,0,
+32,0,0]
+
 var ledsCircleArray[LEDCIRCLEMAXINDEX + 1]
 var ledsButtonArray[LEDBUTTONMAXINDEX + 1]
 var calibrationArray[CALIBRATIONMAXINDEX + 1]
@@ -61,7 +89,7 @@ var previousState
 var nextState
 var ledState
 var counterTicks #counts every timer tick while robot is going forward
-var counterTakeTemp #counts how many times robot has been in TAKETEMP state
+var counterTempOnThisTrip #counts how many times robot has been in TAKETEMP state
 var counterTrip #counts how many trips the rotot has traveled
 var counterRotate
 var counterMaxRotate
@@ -72,11 +100,15 @@ var counterTurnAround
 var prox1
 var prox2
 var proxFactor
+var proxCorrection
 var temp
+var roundedTemp
 var previousTemp
 var calibrating
 var counterCalibration
 var sound
+var leftTarget
+var rightTarget
 
 
 sub resetLedArray
@@ -92,17 +124,23 @@ sub resetLedArray
 
 sub initialize
 	call sound.system(-1)
+	call leds.temperature(0,0)
+	call leds.bottom.left(0,0,0)
+	call leds.bottom.right(0,0,0)
+	call leds.top(0,0,0)
+	call leds.prox.h(0,0,0,0,0,0,0,0)
+	call leds.prox.v(0,0)
 	callsub resetLedArray
 	for i in 0:CALIBRATIONMAXINDEX do
 		calibrationArray[i] = 0
 	end
-	timer.period[0] = TIMERFAST
+	timer.period[0] = TIMERPERIOD
 	state = OFF
 	previousState = OFF
 	nextState = OFF
 	ledState = OFF
 	counterTicks = 0
-	counterTakeTemp = 0
+	counterTempOnThisTrip = 0
 	counterTrip = 0
 	counterRotate = 0
 	counterMaxRotate = 0
@@ -113,18 +151,22 @@ sub initialize
 	prox1 = 0
 	prox2 = 0
 	proxFactor = 0
+	proxCorrection = 0
 	temp = 0
+	roundedTemp = 0
 	previousTemp = 0
 	calibrating = TRUE
 	counterCalibration = 0
 	sound = OFF
+	leftTarget = 0
+	rightTarget = 0
 	
 sub goForward
 	ledsCircleArray = [LEDHIGH,LEDLOW,0,0,0,0,0,LEDLOW]
 	
 	#SPEEDCORRECTION can be modified if robot doesn't go in a straight line
-	motor.left.target = SPEEDFORWARD + SPEEDCORRECTION
-	motor.right.target = SPEEDFORWARD
+	motor.left.target = SPEEDFORWARD - SPEEDCORRECTION
+	motor.right.target = SPEEDFORWARD + SPEEDCORRECTION
 	
 sub stop
 	ledsCircleArray = [0,LEDLOW,0,LEDLOW,0,LEDLOW,0,LEDLOW]
@@ -147,56 +189,77 @@ sub setProxRear
 	prox1 = 5
 	prox2 = 6
 	proxFactor = 1
+	proxCorrection = PROXREARCORRECTION
 
 sub setProxFront
 	prox1 = 1
 	prox2 = 3
 	proxFactor = -1
+	proxCorrection = -PROXFRONTCORRECTION
 	
 sub align
 	#when rear-left is too close
-	if prox.horizontal[prox1] > (PROXREAR + PROXTOLERANCE) then
+	if prox.horizontal[prox1] > (PROXALIGN + PROXTOLERANCE + proxCorrection) then
 		motor.left.target = SPEEDALIGN * proxFactor
 	end
 	#when rear-left is too far
-	if prox.horizontal[prox1] &lt; (PROXREAR - PROXTOLERANCE) then
+	if prox.horizontal[prox1] &lt; (PROXALIGN - PROXTOLERANCE + proxCorrection) then
 		motor.left.target = -SPEEDALIGN * proxFactor
 	end
 	#when rear-right is too close
-	if prox.horizontal[prox2] > (PROXREAR + PROXTOLERANCE) then
+	if prox.horizontal[prox2] > (PROXALIGN + PROXTOLERANCE - proxCorrection) then
 		motor.right.target = SPEEDALIGN * proxFactor
 	end
 	#when rear-right is too far
-	if prox.horizontal[prox2] &lt; (PROXREAR - PROXTOLERANCE) then
+	if prox.horizontal[prox2] &lt; (PROXALIGN - PROXTOLERANCE - proxCorrection) then
 		motor.right.target = -SPEEDALIGN * proxFactor
 	end
 	#stop left motor when distance is correct
-	if prox.horizontal[prox1] &lt; (PROXREAR + PROXTOLERANCE) and prox.horizontal[prox1] > (PROXREAR - PROXTOLERANCE) then
+	if prox.horizontal[prox1] &lt; (PROXALIGN + PROXTOLERANCE + proxCorrection) and prox.horizontal[prox1] > (PROXALIGN - PROXTOLERANCE + proxCorrection) then
 		motor.left.target = 0
 	end
 	#stop right motor when distance is correct
-	if prox.horizontal[prox2] &lt; (PROXREAR + PROXTOLERANCE) and prox.horizontal[prox2] > (PROXREAR - PROXTOLERANCE) then
+	if prox.horizontal[prox2] &lt; (PROXALIGN + PROXTOLERANCE - proxCorrection) and prox.horizontal[prox2] > (PROXALIGN - PROXTOLERANCE - proxCorrection) then
 		motor.right.target = 0
 	end
 	
 sub announceTemperature
+	roundedTemp = temp / 10
 	if sound == ON then
 		#division by ten, so only annouces every degree, not every tenth
-		if temp / 10 != previousTemp / 10 then
+		if roundedTemp != previousTemp / 10 then
 			#only between 15 and 40, so doesn't get missing file error
-			if temp / 10 >= 15 and temp / 10 &lt;=40 then
-				call sound.play(temp/10)
+			if roundedTemp >= 15 and roundedTemp &lt;=40 then
+				call sound.play(roundedTemp)
 			end
+		end
+	end
+	if ledState == ON then
+		if roundedTemp >= 15 and roundedTemp &lt;= 40 then
+		roundedTemp = 3 * (roundedTemp - 15)
+		call leds.bottom.left(ledsTempValue[roundedTemp],ledsTempValue[roundedTemp+1],ledsTempValue[roundedTemp+2])
+			call leds.bottom.right(ledsTempValue[roundedTemp],ledsTempValue[roundedTemp+1],ledsTempValue[roundedTemp+2])
 		end
 	end
 	
 	
 sub writeTemp
-	tempArray[10*(counterTrip-1)+counterTakeTemp-1] = temp
+	tempArray[10*(counterTrip-1)+counterTempOnThisTrip-1] = temp
 	call sd.open(1,1)
 	call sd.write(tempArray,1)
 	callsub announceTemperature
 	
+sub setRotationValue
+	#set rotation value in array
+	calibrationArray[counterTrip - 1] = counterTicks
+	counterTicks = 0
+	#change state
+	state = WAIT
+	nextState = ALIGNFRONT
+	
+sub resetVarsForStateChange
+	counterTicks = 0
+	previousState = state
 
 ##################################################
 	
@@ -213,12 +276,13 @@ onevent buttons
 		ledsButtonArray = [LEDHIGH,LEDLOW,LEDLOW,LEDLOW]
 		
 		if state == OFF then
-			state = ALIGNREAR
+			state = ROTATE
 		elseif state != PAUSE then
 			previousState = state
 			state = PAUSE
 		else
 			state = previousState
+			previousState = PAUSE
 		end
 	end
 	
@@ -274,155 +338,163 @@ onevent buttons
 #fast timer (~5ms)
 onevent timer0
 
-	#the following is always executed
-	when state == OFF do
-		callsub stop
-	end
-	
-	when state == ALIGNFRONT do
-		callsub stop
-		callsub setProxFront
-	end
-	
-	when state == WAIT do
-		callsub stop		
-		counterTicks = 0
-	end
-	
-	##########
-
-
-	#the following is only executed when calibrating
-	if calibrating == TRUE then
-		when state == ROTATE do
-			counterTicks = 0
+	#if previous state was not PAUSE, to prevent variables being reset when PAUSE is finished
+	if previousState != PAUSE then
+		when state == OFF do
+			callsub stop
+		end
 		
-			if counterCalibration % 2 == 1 then
-				callsub rotateCW
-			else
-				callsub rotateCCW	
-			end
-			counterCalibration++
+		when state == ALIGNFRONT do
+			callsub stop
+			callsub setProxFront
+		end
+		
+		when state == WAIT do
+			callsub stop		
 		end
 		
 		when state == ALIGNFORSTART do
+			
+			#go through calibrationArray to calculate rotation timing
 			for i in 0:CALIBRATIONMAXINDEX do
 				#don't take two first entries, so robot is properly aligned
 				if i > 1 then
 					if i % 2 == 0 then
+						#increment counterMaxRotateCCW -> average will be made below
 						counterMaxRotateCCW += calibrationArray[i]
 					else
+						#increment counterMaxRotateCW -> average will be made below
 						counterMaxRotateCW += calibrationArray[i]
 					end
 				end
 			end
+			
 			#calculate average
 			counterMaxRotateCCW = counterMaxRotateCCW / ((CALIBRATIONMAXINDEX - 1)/2)
 			counterMaxRotateCW = counterMaxRotateCW / ((CALIBRATIONMAXINDEX - 1)/2)
-			counterTicks = 0
+			
+			#rotate CW, to align for start
 			callsub rotateCW
 		end
 		
-		#greater than CALIBRATIONMAXINDEX + 1, so robot can get back to initial position
-		#note that CALIBRATIONMAXINDEX should be odd
-		when counterCalibration > CALIBRATIONMAXINDEX + 1 do
-			counterCalibration = 0
-			state = WAIT
-			nextState = ALIGNFORSTART
-		end
-		
-		
-		##########
-		
-		if state == ALIGNFRONT then
-			callsub align
-			
-			#if front is aligned
-			if motor.left.target == 0 and motor.right.target == 0 then
-				counterTicks = 0
-				state = WAIT
-				nextState = ROTATE
-			end
-		end
-		
-		if state == ROTATE then
-			counterTicks++
-			#this ensures that robot rotates at least 45° before trying to align again
-			if counterTicks > COUNTERMINROTATE then
-				#if rotating CCW
-				if motor.left.target &lt; motor.right.target then
-					if prox.horizontal[3] > prox.horizontal[1] then
-						calibrationArray[counterCalibration - 1] = counterTicks
-						counterTicks = 0
-						state = WAIT
-						nextState = ALIGNFRONT
-					end
-				#if rotating CW
-				elseif motor.left.target > motor.right.target then
-					if prox.horizontal[1] > prox.horizontal[3] then
-						calibrationArray[counterCalibration - 1] = counterTicks
-						counterTicks = 0
-						state = WAIT
-						nextState = ALIGNFRONT
-					end
-				end
-			end
-			
-			
-		end
-		
-		if state == ALIGNFORSTART then
-			counterTicks++
-			if counterTicks > counterMaxRotateCW then
-				#reset counter for WAIT functions
-				counterTicks = 0
-				callsub stop
-				#calibrating is finished
-#------------>		#calibrating = FALSE
-				state = WAIT
-				nextState = ALIGNREAR
-			end
-		end
-	#the following is only executed when NOT calibrating
-	else
-		
 		when state == GOFORWARD do
 			callsub goForward
-			counterTicks = 0
-			if counterTakeTemp == TEMPPERTRIP and counterTrip == TEMPPERTRIP then
-				state = OFF
-			end
 		end
 		
 		when state == ROTATE do
 			#manages direction of rotation
 			if counterTrip % 2 == 1 then
 				callsub rotateCW
-				counterMaxRotate = counterMaxRotateCW
+				
+				#if not calibrating, set rotation time
+				if calibrating == FALSE then
+					counterMaxRotate = counterMaxRotateCW
+				end
 			else
 				callsub rotateCCW
-				counterMaxRotate = counterMaxRotateCCW
+				
+				#if not calibrating, set rotation time
+				if calibrating == FALSE then
+					counterMaxRotate = counterMaxRotateCCW
+				end
 			end
 			
-			counterTicks = 0
-			counterRotate++
+			if calibrating == TRUE then
+				counterTrip++
+				#when angle calibration is finished
+				when counterTrip > CALIBRATIONMAXINDEX + 1 do
+					counterTrip = 0
+					state = WAIT
+					nextState = ALIGNFORSTART
+				end
+			else
+				counterRotate++
+			end
 		end
 		
 		when state == TAKETEMP do
-		
 			callsub stop
-			counterTakeTemp++
-			counterTicks = 0
+			counterTempOnThisTrip++
+		end
+			
+		when state == ALIGNREAR do
+			callsub setProxRear
+					
+			#reset counters before next trip
+			counterTempOnThisTrip = 0
+			counterRotate = 0
+			counterTrip++
 		end
 		
-		##########
-	
-
+		when state == GOTOEND do
+			callsub goForward
+		end
 		
-		if state == ROTATE then
-			counterTicks++
-			when counterTicks >= counterMaxRotate do
-				counterTicks = 0
+		when state == TURNAROUND do
+			callsub rotateCW
+			counterTurnAround++
+			
+			#when robot is back in start position
+			when counterTurnAround == 2 do
+				calibrating = FALSE
+				counterTrip = 0
+			end
+		end
+	end
+	
+	when state == PAUSE do
+		leftTarget = motor.left.target
+		rightTarget = motor.right.target
+		
+		#stop the wheels without using the "stop" LEDs
+		motor.left.target = 0
+		motor.right.target = 0
+		if ledState == ON then
+			call leds.top(LEDHIGH,0,0)
+		end
+	end
+	
+	when state != PAUSE do
+		motor.left.target = leftTarget
+		motor.right.target = rightTarget
+		call leds.top(0,0,0)
+	end
+
+	
+	if state == ALIGNFORSTART then
+		counterTicks++
+		if counterTicks == counterMaxRotateCW + ROTATIONCORRECTION then
+			callsub stop
+			callsub resetVarsForStateChange
+			state = WAIT
+			nextState = ALIGNREAR
+		end
+	end
+	
+	if state == ROTATE then
+		counterTicks++
+		
+		if calibrating == TRUE then
+			#this ensures that robot rotates at least 45° before trying to align again
+			if counterTicks > COUNTERMINROTATE then
+				#if rotating CCW
+				if motor.left.target &lt; motor.right.target then
+					#if front-right prox > front-left prox -> robot is ~perpendicular
+					if prox.horizontal[3] > prox.horizontal[1] then
+						callsub setRotationValue
+					end
+				#if rotating CW
+				elseif motor.left.target > motor.right.target then
+					#if front-left prox > front-right prox -> robot is ~perpendicular
+					if prox.horizontal[1] > prox.horizontal[3] then
+						callsub setRotationValue
+					end
+				end
+			end
+		else #if calibrating == FALSE
+			#when robot has rotated 90°
+			when counterTicks == counterMaxRotate do
+				callsub resetVarsForStateChange
 				state = WAIT
 				#if first time or if robot has back to wall
 				if counterTrip == 0 or counterRotate == 2 then
@@ -430,114 +502,82 @@ onevent timer0
 				else
 					nextState = GOFORWARD
 				end
-				#*
-				if counterRotate == 1 then
-					nextState = GOFORWARD
-				else #if counterRotate == 2 then
-					nextState = ALIGNREAR
-				end
-				*#
 			end
 		end
+	end
+	
+	if state == ALIGNFRONT then	
+		callsub align
 		
-		if state == ALIGNFRONT then
-			callsub align
-			
-			#if front is aligned
-			if motor.left.target == 0 and motor.right.target == 0 then
+		#if front is aligned
+		if motor.left.target == 0 and motor.right.target == 0 then
+			callsub resetVarsForStateChange
+			state = WAIT
+			nextState = ROTATE
+		end
+	end
+
+	if state == TAKETEMP then
+		counterTicks++
+		if counterTicks == (TIMETAKETEMP / TIMERPERIOD) then
+			previousTemp = temp
+			temp = temperature
+			callsub writeTemp
+			callsub resetVarsForStateChange
+			state = GOFORWARD
+			#if all measures have been taken
+			if counterTempOnThisTrip == TEMPPERTRIP and counterTrip == TEMPPERTRIP then
+				state = OFF
+			end
+		end
+	end
+
+	if state == GOFORWARD then
+		counterTicks++
+
+		if counterTicks == counterMaxGoForward then
+			#if not all temps have been taken
+			if counterTempOnThisTrip &lt; TEMPPERTRIP then
+				callsub resetVarsForStateChange
+				state = TAKETEMP
+			end
+			#if parallel to wall, then rotate again
+			if counterRotate == 1 then
+				callsub resetVarsForStateChange
 				state = WAIT
 				nextState = ROTATE
 			end
 		end
-	
-		if state == TAKETEMP then
-			counterTicks++
-			if counterTicks >= (TIMETAKETEMP / TIMERFAST) then
-				previousTemp = temp
-				temp = temperature
-				callsub writeTemp
-				counterTicks = 0
-				state = GOFORWARD
-			end
-		end
-	
-		if state == GOFORWARD then
-			counterTicks++
-	
-			if counterTicks >= counterMaxGoForward then
-				if counterTakeTemp &lt; TEMPPERTRIP then
-					state = TAKETEMP
-				end
-				if counterRotate == 1 then
-					state = WAIT
-					nextState = ROTATE
-				end
-			end
-			
-			when prox.horizontal[2] > PROXFRONT do
-				state = ALIGNFRONT
-			end
-		end
 		
-
-		
-	end#if calibrating
-	
-	
-	
-	##########
-	#the following is always executed
-	
-	when state == ALIGNREAR do
-		callsub setProxRear
-		counterTakeTemp = 0
-		counterRotate = 0
-		counterTrip++
-	end
-	
-	when state == GOTOEND do
-		callsub goForward
-		counterTicks = 0
-	end
-	
-	when state == TURNAROUND do
-		callsub rotateCW
-		counterTicks = 0
-		counterTurnAround++
-		#when robot is back in start position
-		when counterTurnAround == 2 do
-			calibrating = FALSE
-			counterTrip = 0
+		#when front of robot is near wall
+		when prox.horizontal[2] > PROXFRONT do
+			state = ALIGNFRONT
 		end
 	end
 	
-	##########
-	
-	#the following "if state == ALIGNREAR" must be placed before "if state == WAIT", or else "setProxRear" won't be called before "align"
 	if state == ALIGNREAR then
 		callsub align
 		
 		#if rear is aligned
 		if motor.left.target == 0 and motor.right.target == 0 then
-			#counterTicks has to be reset here, because "if state == ALIGNREAR" is before "if state == WAIT"
-			counterTicks = 0
+			callsub resetVarsForStateChange
 			state = WAIT
 			if calibrating == TRUE then
 				nextState = GOTOEND
 			else
 				nextState = GOFORWARD
 			end
-			
 		end
 	end
 	
 	if state == GOTOEND then
 		counterTicks++
+		#when robot front is close to wall
 		when prox.horizontal[2] > PROXFRONT do
 			callsub stop
 			#set distance between each temp measure
-			counterMaxGoForward = counterTicks / (TEMPPERTRIP + 1)#(COUNTERMAXTAKETEMP)
-			counterTicks = 0
+			counterMaxGoForward = counterTicks / (TEMPPERTRIP + 1)
+			callsub resetVarsForStateChange
 			state = WAIT
 			nextState = TURNAROUND
 		end
@@ -545,27 +585,22 @@ onevent timer0
 	
 	if state == TURNAROUND then
 		counterTicks++
-		#make 180° turn
-		when counterTicks > 2 * counterMaxRotateCW do
+		#when robot has turned 180°
+		when counterTicks == 2 * (counterMaxRotateCW + ROTATIONCORRECTION) do
 			callsub stop
-			counterTicks = 0
+			callsub resetVarsForStateChange
 			state = WAIT
 			nextState = ALIGNREAR
 		end
 	end
 	
-	if state == WAIT then
-			
+	if state == WAIT then	
 		counterTicks++
-		
-		if counterTicks >= (TIMEWAIT / TIMERFAST) then
+		if counterTicks == (TIMEWAIT / TIMERPERIOD) then
+			callsub resetVarsForStateChange
 			state = nextState
 		end
-	end
-	
-	##########
-	
-</node>
+	end</node>
 
 
 </network>
